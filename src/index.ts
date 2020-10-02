@@ -1,37 +1,49 @@
 import 'reflect-metadata';
 
-const ValidateAsString = Symbol('ValidateAsString');
-const validatorKey = Symbol('Validation.Configs');
+const ValidatorKey = Symbol('Validation.Configs');
+const ValidationStorage = Symbol('ValidationStorage');
 
 namespace Factories {
     export function PrimitiveDecoratorFactory(typename: 'string' | 'number' | 'bigint' | 'boolean' | 'symbol' | 'undefined' | 'object' | 'function'): PropertyDecorator {
         return function validator(target, propertyKey) {
-            const meta = Reflect.getMetadata(validatorKey, target) || {};
+            const meta = Reflect.getMetadata(ValidatorKey, target) || {};
             meta[propertyKey] = {
                 type: typename
             };
-            Reflect.defineMetadata(validatorKey, meta, target);
+            Reflect.defineMetadata(ValidatorKey, meta, target);
         }
     }
 }
 
-export const Validate: ClassDecorator = <T>(target) => {
-    const meta = Reflect.getMetadata(validatorKey, target.prototype);
+export const Validate: ClassDecorator = (target) => {
+    const meta = Reflect.getMetadata(ValidatorKey, target.prototype);
+    const keys = Object.keys(meta);
+    const propertyMap: PropertyDescriptorMap = {};
+
 
     const proxy = new Proxy(target, {
-        construct(target, args, newTarget) {
+        construct(target, args) {
+            // @ts-ignore
             const inst = new target(...args);
-            
+            inst[ValidationStorage] = {};
+            Utilities.applyValidators(inst, inst[ValidationStorage], meta);
+            keys.forEach(key => {
+                propertyMap[key] = {
+                    get() {
+                        return inst[ValidationStorage][key];
+                    },
+                    set(value: any) {
+                        if (typeof value !== meta[key].type) throw new TypeError(`${key} must be ${meta[key].type}`);
+                        inst[ValidationStorage][key] = value;
+                    }
+                }
+            });
+            Object.defineProperties(inst, propertyMap);
+            return inst;
         }
     });
 
-    class WrappedCtr extends target {
-        constructor(...rest) {
-            super(rest);
-        }
-    }
-
-    return target;
+    return proxy;
 }
 
 export namespace Validators {
@@ -63,7 +75,7 @@ export namespace Utilities {
     }
 
     export function fromJson<T>(data: string, type: new () => T) {
-        const meta = Reflect.getMetadata(validatorKey, type.prototype);
+        const meta = Reflect.getMetadata(ValidatorKey, type.prototype);
         const object = JSON.parse(data);
         const instance = new type();
         applyValidators(object, instance, meta);
