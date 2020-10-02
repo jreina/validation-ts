@@ -1,28 +1,37 @@
 import 'reflect-metadata';
 
 const ValidateAsString = Symbol('ValidateAsString');
+const validatorKey = Symbol('Validation.Configs');
 
 namespace Factories {
     export function PrimitiveDecoratorFactory(typename: 'string' | 'number' | 'bigint' | 'boolean' | 'symbol' | 'undefined' | 'object' | 'function'): PropertyDecorator {
         return function validator(target, propertyKey) {
-
-            const prop = Symbol(`__v-${propertyKey.toString()}`);
-            Object.defineProperties(target, {
-                [prop]: {
-                    enumerable: false,
-                    writable: true
-                },
-                [propertyKey]: {
-                    get() { return this[prop]; },
-                    set(value) {
-                        if (typeof value !== typename) throw new TypeError(`${propertyKey.toString()} must be ${typename}`);
-                        this[prop] = value;
-                    },
-                    enumerable: true
-                }
-            })
+            const meta = Reflect.getMetadata(validatorKey, target) || {};
+            meta[propertyKey] = {
+                type: typename
+            };
+            Reflect.defineMetadata(validatorKey, meta, target);
         }
     }
+}
+
+export const Validate: ClassDecorator = <T>(target) => {
+    const meta = Reflect.getMetadata(validatorKey, target.prototype);
+
+    const proxy = new Proxy(target, {
+        construct(target, args, newTarget) {
+            const inst = new target(...args);
+            
+        }
+    });
+
+    class WrappedCtr extends target {
+        constructor(...rest) {
+            super(rest);
+        }
+    }
+
+    return target;
 }
 
 export namespace Validators {
@@ -44,11 +53,20 @@ export namespace Validators {
 }
 
 export namespace Utilities {
+
+    export function applyValidators(source: any, target: any, rules: { [key: string]: { type: string } }) {
+        const keys = Object.keys(rules);
+        keys.forEach(key => {
+            if (typeof source[key] !== rules[key].type) throw new TypeError(`${key} must be ${rules[key].type}`);
+            target[key] = source[key];
+        });
+    }
+
     export function fromJson<T>(data: string, type: new () => T) {
+        const meta = Reflect.getMetadata(validatorKey, type.prototype);
         const object = JSON.parse(data);
-        const keys = Object.keys(object);
         const instance = new type();
-        keys.forEach(key => instance[key] = object[key]);
+        applyValidators(object, instance, meta);
         return instance as T;
     }
 }
