@@ -1,5 +1,6 @@
-import { Validators } from "../src";
+import { Validate, Validators } from "../src";
 
+@Validate
 export class MyClass {
     @Validators.String
     name: string;

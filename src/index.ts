@@ -1,28 +1,49 @@
 import 'reflect-metadata';
 
-const ValidateAsString = Symbol('ValidateAsString');
+const ValidatorKey = Symbol('Validation.Configs');
+const ValidationStorage = Symbol('ValidationStorage');
 
 namespace Factories {
     export function PrimitiveDecoratorFactory(typename: 'string' | 'number' | 'bigint' | 'boolean' | 'symbol' | 'undefined' | 'object' | 'function'): PropertyDecorator {
         return function validator(target, propertyKey) {
-
-            const prop = Symbol(`__v-${propertyKey.toString()}`);
-            Object.defineProperties(target, {
-                [prop]: {
-                    enumerable: false,
-                    writable: true
-                },
-                [propertyKey]: {
-                    get() { return this[prop]; },
-                    set(value) {
-                        if (typeof value !== typename) throw new TypeError(`${propertyKey.toString()} must be ${typename}`);
-                        this[prop] = value;
-                    },
-                    enumerable: true
-                }
-            })
+            const meta = Reflect.getMetadata(ValidatorKey, target) || {};
+            meta[propertyKey] = {
+                type: typename
+            };
+            Reflect.defineMetadata(ValidatorKey, meta, target);
         }
     }
+}
+
+export const Validate: ClassDecorator = (target) => {
+    const meta = Reflect.getMetadata(ValidatorKey, target.prototype);
+    const keys = Object.keys(meta);
+    const propertyMap: PropertyDescriptorMap = {};
+
+
+    const proxy = new Proxy(target, {
+        construct(target, args) {
+            // @ts-ignore
+            const inst = new target(...args);
+            inst[ValidationStorage] = {};
+            Utilities.applyValidators(inst, inst[ValidationStorage], meta);
+            keys.forEach(key => {
+                propertyMap[key] = {
+                    get() {
+                        return inst[ValidationStorage][key];
+                    },
+                    set(value: any) {
+                        if (typeof value !== meta[key].type) throw new TypeError(`${key} must be ${meta[key].type}`);
+                        inst[ValidationStorage][key] = value;
+                    }
+                }
+            });
+            Object.defineProperties(inst, propertyMap);
+            return inst;
+        }
+    });
+
+    return proxy;
 }
 
 export namespace Validators {
@@ -44,11 +65,20 @@ export namespace Validators {
 }
 
 export namespace Utilities {
+
+    export function applyValidators(source: any, target: any, rules: { [key: string]: { type: string } }) {
+        const keys = Object.keys(rules);
+        keys.forEach(key => {
+            if (typeof source[key] !== rules[key].type) throw new TypeError(`${key} must be ${rules[key].type}`);
+            target[key] = source[key];
+        });
+    }
+
     export function fromJson<T>(data: string, type: new () => T) {
+        const meta = Reflect.getMetadata(ValidatorKey, type.prototype);
         const object = JSON.parse(data);
-        const keys = Object.keys(object);
         const instance = new type();
-        keys.forEach(key => instance[key] = object[key]);
+        applyValidators(object, instance, meta);
         return instance as T;
     }
 }

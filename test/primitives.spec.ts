@@ -64,6 +64,7 @@ describe('Validate', () => {
             instance2.name = 'Bae';
             expect(instance2.name).to.eq('Bae');
             expect(instance1.name).to.eq(template.name);
+            MyClass.prototype
         });
     });
 });
